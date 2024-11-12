@@ -1,0 +1,49 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go-specific files
+*.log
+*.test
+*.out
+
+# Output of the go coverage tool
+coverage.out
+
+# IDE or editor specific files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Dependency directories (may be configured as needed)
+vendor/
+
+# Generated files
+*.gen.go
+
+# Sensitive and configuration files
+.env
+*.env
+config.yaml
+config.toml
+*.key
+*.pem
+
+# Git-ignored files for secrets and credentials
+*.secret
+.secret/
+credentials.json
+
+# Logs and debugging output
+*.log
+*.trace
+debug/
+error.log
+trace.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
