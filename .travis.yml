@@ -7,6 +7,11 @@ go:
 script:
   - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
 
+jobs:
+  include:
+  - stage: deploy
+    if: tag IS present
+    
 # calls goreleaser
 deploy:
 - provider: script
