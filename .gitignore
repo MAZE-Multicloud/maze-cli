@@ -18,9 +18,6 @@ coverage.out
 *.swp
 *~
 
-# Dependency directories (may be configured as needed)
-vendor/
-
 # Generated files
 *.gen.go
 
