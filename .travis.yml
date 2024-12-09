@@ -2,8 +2,7 @@
 language: go
 
 go:
-- master
-
+- 1.x
 
 script:
   - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
@@ -11,7 +10,6 @@ script:
 # calls goreleaser
 deploy:
 - provider: script
-  skip_cleanup: true
   script: curl -sfL https://goreleaser.com/static/run | bash
   on:
     tags: true
