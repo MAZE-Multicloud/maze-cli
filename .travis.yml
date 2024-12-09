@@ -1,55 +1,17 @@
+# .travis.yml
 language: go
 
-go:
-  - "1.18"  # Go version
-
-env:
-  global:
-    - GIT_ENTERPRISE_API_URL=https://github.ibm.com/api/v3
-    - GIT_ENTERPRISE_REPO=MAZE-MultiCloud/maze-cli
-    - BINARY_NAME=maze-cli
-
-# Only build and deploy on the main branch
-branches:
-  only:
-    - main
-
-# Install dependencies
-install:
-  - go mod tidy
-  - go mod vendor
-  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOPATH/bin v1.52.2
-
-# Script to build and test
 script:
-  - golangci-lint run  # Run linting
-  - go build -o $BINARY_NAME
-  - go test ./...  # Runs Go tests
+  - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
 
-# Packaging and deployment
-before_deploy:
-  - mkdir release
-  - mv $BINARY_NAME release/
-  - tar -czvf $BINARY_NAME.tar.gz -C release $BINARY_NAME
-  - export RELEASE_TAG=$(git describe --tags --abbrev=0 || echo "v0.1.0")  # Use latest tag or default
-
+# calls goreleaser
 deploy:
-  provider: releases
-  api_key:
-    secure: "YOUR_ENCRYPTED_API_KEY"  # You need to encrypt your GitHub Enterprise token using `travis encrypt` for security
-  file: 
-    - $BINARY_NAME
-    - $BINARY_NAME.tar.gz
+- provider: script
   skip_cleanup: true
+  script: curl -sfL https://goreleaser.com/static/run | bash
   on:
-    branch: main
-  overwrite: true
-  edge: true
-  prerelease: true
-  file_glob: true
-  release_name: "$RELEASE_TAG"
-  repo: $GIT_ENTERPRISE_REPO
-  api_endpoint: $GIT_ENTERPRISE_API_URL
+    tags: true
+    condition: $TRAVIS_OS_NAME = linux
 
 notifications:
   email:
