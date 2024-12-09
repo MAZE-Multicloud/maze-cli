@@ -5,16 +5,19 @@ go:
 - 1.x
 
 script:
-  - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
+  - go test -v ./...
 
 jobs:
   include:
   - stage: deploy
     if: tag IS present
-    
+
+install: true
 # calls goreleaser
 deploy:
 - provider: script
+  github_token: $GITHUB_TOKEN
+  skip_cleanup: true
   script: curl -sfL https://goreleaser.com/static/run | bash
   on:
     tags: true

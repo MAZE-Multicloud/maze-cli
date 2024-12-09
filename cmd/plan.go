@@ -335,7 +335,7 @@ func complianceStep(path string) {
 
 	var data Response
 	if err := json.Unmarshal(bodyBytes, &data); err != nil {
-		fmt.Println("Compliance testing failed: %v", err)
+		fmt.Printf("Compliance testing failed: %v", err)
 	}
 	complianceStartSpinner.Success()
 	time.Sleep(1000 * time.Millisecond)
@@ -346,7 +346,7 @@ func complianceStep(path string) {
 
 	filePath := filepath.Join(dirPath, "maze-output", "maze_compliance_results.json")
 	if err := os.WriteFile(filePath, bodyBytes, 0644); err != nil {
-		fmt.Println("Failed to write response to file: %v", err)
+		fmt.Printf("Failed to write response to file: %v", err)
 	}
 	time.Sleep(1000 * time.Millisecond)
 
