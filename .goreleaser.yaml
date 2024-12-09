@@ -60,7 +60,7 @@ brews:
     name: maze
     homepage: https://github.ibm.com/MAZE-MultiCloud/maze-cli
     repository:
-      owner: maze
+      owner: MAZE-MultiCloud
       name: homebrew-maze-cli
     commit_author:
       name: maze
