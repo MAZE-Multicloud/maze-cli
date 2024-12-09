@@ -1,6 +1,10 @@
 # .travis.yml
 language: go
 
+go:
+- master
+
+
 script:
   - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
 
