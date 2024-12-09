@@ -13,18 +13,48 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
-	"time"
-
+	"errors"
 	"maze/cmd/ux"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
+
+// Define struct to match the JSON structure.
+type Check struct {
+	CheckID     string `json:"check_id"`
+	CheckName   string `json:"check_name"`
+	CheckResult struct {
+		Result        string   `json:"result"`
+		EvaluatedKeys []string `json:"evaluated_keys"`
+	} `json:"check_result"`
+	FilePath string `json:"file_path"`
+	Resource string `json:"resource"`
+}
+
+type Results struct {
+	FailedChecks []Check `json:"failed_checks"`
+}
+
+type Summary struct {
+	Passed         int    `json:"passed"`
+	Failed         int    `json:"failed"`
+	Skipped        int    `json:"skipped"`
+	ParsingErrors  int    `json:"parsing_errors"`
+	ResourceCount  int    `json:"resource_count"`
+	CheckovVersion string `json:"checkov_version"`
+}
+
+type Response struct {
+	CheckType string  `json:"check_type"`
+	Results   Results `json:"results"`
+	Summary   Summary `json:"summary"`
+}
 
 var (
 	dirPath       string
@@ -33,6 +63,7 @@ var (
 	generateImage bool
 	token         string
 	profileName   string
+	provider      string
 )
 
 // planCmd represents the plan command
@@ -54,7 +85,7 @@ func mazePlan() error {
 	style.Println("Terraform plan")
 	fmt.Printf("We are going to create a project in maze using terraform provided from %s and the project will be named %s\n\n\n", dirPath, name)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	success := authStep()
 
@@ -67,14 +98,34 @@ func mazePlan() error {
 	body, writer := readFileStep()
 
 	time.Sleep(1000 * time.Millisecond)
+	success, path := sendFiles(body, writer)
 
-	success, bodyBytes := planStep(body, writer)
+	folderPath := filepath.Join(dirPath, "maze-output")
+	if _, err := os.Stat(folderPath); errors.Is(err, os.ErrNotExist) {
+		err := os.Mkdir(folderPath, os.ModePerm)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	time.Sleep(1000 * time.Millisecond)
+	formatStep(string(path))
+	time.Sleep(1000 * time.Millisecond)
+
+	validateStep(string(path))
+
+	time.Sleep(1000 * time.Millisecond)
+
+	complianceStep(string(path))
+
+	time.Sleep(1000 * time.Millisecond)
+
+	success, projectIdBytes := planStep(string(path))
+	projectId := string(projectIdBytes)
 
 	if !success {
 		return nil
 	}
-	projectId := string(bodyBytes)
-	complianceStep()
 
 	time.Sleep(1000 * time.Millisecond)
 
@@ -85,6 +136,8 @@ func mazePlan() error {
 		imageStep(projectId, dirPath)
 		time.Sleep(2000 * time.Millisecond)
 	}
+
+	deleteFilesStep(string(path))
 
 	fmt.Println("")
 
@@ -119,7 +172,6 @@ func authStep() (success bool) {
 	authReq.Header.Set("Authorization", token)
 
 	var authStartSpinner = ux.NewSpinner("Authenticating", "Authenticated", "Authentication failed", false)
-
 	authStartSpinner.Start()
 
 	// Execute the request.
@@ -151,35 +203,44 @@ func readFileStep() (body bytes.Buffer, writer *multipart.Writer) {
 		if err != nil {
 			return err
 		}
+
+		// Skip the "maze-output" directory.
+		if info.IsDir() && info.Name() == "maze-output" {
+			return filepath.SkipDir
+		}
+
 		// Skip directories; only process files.
 		if !info.IsDir() {
 			// Open the file.
-			fileToUpload, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open file %s: %v", path, err)
-			}
-			defer fileToUpload.Close()
+			if strings.HasPrefix(filepath.Ext(info.Name()), ".tf") {
 
-			// Create a form file field for the file with the key "file".
-			part, err := writer.CreateFormFile("file", info.Name())
-			if err != nil {
-				return fmt.Errorf("failed to create form file: %v", err)
-			}
+				fileToUpload, err := os.Open(path)
+				if err != nil {
+					return fmt.Errorf("failed to open file %s: %v", path, err)
+				}
+				defer fileToUpload.Close()
 
-			// Copy the file content to the multipart form field.
-			if _, err := io.Copy(part, fileToUpload); err != nil {
-				return fmt.Errorf("failed to copy file content: %v", err)
-			}
+				// Create a form file field for the file with the key "file".
+				part, err := writer.CreateFormFile("file", info.Name())
+				if err != nil {
+					return fmt.Errorf("failed to create form file: %v", err)
+				}
 
-			// Compute the relative path of the file to the base directory.
-			relativePath, err := filepath.Rel(dirPath, path)
-			if err != nil {
-				return fmt.Errorf("failed to compute relative path: %v", err)
-			}
+				// Copy the file content to the multipart form field.
+				if _, err := io.Copy(part, fileToUpload); err != nil {
+					return fmt.Errorf("failed to copy file content: %v", err)
+				}
 
-			// Create a form field for the file path using the relative path.
-			if err := writer.WriteField("originalPath", relativePath); err != nil {
-				return fmt.Errorf("failed to write path field: %v", err)
+				// Compute the relative path of the file to the base directory.
+				relativePath, err := filepath.Rel(dirPath, path)
+				if err != nil {
+					return fmt.Errorf("failed to compute relative path: %v", err)
+				}
+
+				// Create a form field for the file path using the relative path.
+				if err := writer.WriteField("originalPath", relativePath); err != nil {
+					return fmt.Errorf("failed to write path field: %v", err)
+				}
 			}
 		}
 		return nil
@@ -195,19 +256,25 @@ func readFileStep() (body bytes.Buffer, writer *multipart.Writer) {
 	return
 }
 
-func sendFiles(path string) (success bool, bodyBytes []byte) {
+func sendFiles(body bytes.Buffer, writer *multipart.Writer) (success bool, bodyBytes []byte) {
 	success = false
 
-	body := []byte(`{name:"test",description:"test"}`)
+	boundary := writer.Boundary()
+
 	// Create a new HTTP request with the multipart data.
-	submitReq, err := http.NewRequest("POST", url+"/api/cli/plan/"+name, bytes.NewBuffer(body))
+
+	submitReq, err := http.NewRequest("POST", url+"/api/cli/submitFiles/", &body)
+
 	if err != nil {
 		return
 	}
 
+	submitReq.Header.Set("Content-Type", fmt.Sprintf("multipart/form-data; boundary=%s", boundary))
+
 	// Set the Authorization header with the provided token.
 	submitReq.Header.Set("Authorization", token)
-
+	var uploadStartSpinner = ux.NewSpinner("Uploading files", "Files uploaded", "Upload failed", false)
+	uploadStartSpinner.Start()
 	// Execute the request.
 	client := &http.Client{}
 	resp, err := client.Do(submitReq)
@@ -221,43 +288,70 @@ func sendFiles(path string) (success bool, bodyBytes []byte) {
 	}
 	defer resp.Body.Close()
 
-	println(string(bodyBytes))
-
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
 		success = true
 	} else {
+		uploadStartSpinner.Fail()
 		fmt.Println(resp)
 		return
 
 	}
+	uploadStartSpinner.Success()
 	return
 }
 
-func complianceStep() {
+func complianceStep(path string) {
 
 	//Compliance  ----------------------------------------------
-	var complianceStartSpinner = ux.NewSpinner("Starting compliance", "Compliance testing in progress", "Authentication failed", false)
+	var complianceStartSpinner = ux.NewSpinner("Starting compliance testing", "Compliance testing complete", "Authentication failed", false)
 	complianceStartSpinner.Start()
+	submitReq, err := http.NewRequest("GET", url+"/api/cli/compliance/"+path, nil)
 
-	out, err := exec.Command("checkov", "serv.dev").Output()
+	// Create a new HTTP request with the multipart data.
 	if err != nil {
-
+		return
 	}
-	fmt.Print(out)
 
-	time.Sleep(1000 * time.Millisecond)
+	// Set the Content-Type header with the boundary.
+
+	submitReq.Header.Set("Content-Type", "application/json")
+	// Set the Authorization header with the provided token.
+	submitReq.Header.Set("Authorization", token)
+
+	// Execute the request.
+	client := &http.Client{}
+	resp, err := client.Do(submitReq)
+	if err != nil {
+		complianceStartSpinner.Fail()
+		return
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		complianceStartSpinner.Fail()
+		fmt.Println(err)
+		return
+	}
+
+	var data Response
+	if err := json.Unmarshal(bodyBytes, &data); err != nil {
+		fmt.Println("Compliance testing failed: %v", err)
+	}
 	complianceStartSpinner.Success()
+	time.Sleep(1000 * time.Millisecond)
 
-	// Industrial Compliance sub headings ----------------------------------------------
+	fmt.Printf("Summary:\n")
+	fmt.Printf("    Passed: %d\n", data.Summary.Passed)
+	fmt.Printf("    Failed: %d\n", data.Summary.Failed)
 
-	var industryComplianceStartSpinner = ux.NewSpinner("Industry compliance testing in progress", "Industry compliance testing finished", "Industry compliance testing failed", true)
-	industryComplianceStartSpinner.Start()
+	filePath := filepath.Join(dirPath, "maze-output", "maze_compliance_results.json")
+	if err := os.WriteFile(filePath, bodyBytes, 0644); err != nil {
+		fmt.Println("Failed to write response to file: %v", err)
+	}
+	time.Sleep(1000 * time.Millisecond)
 
-	time.Sleep(2000 * time.Millisecond)
+	fmt.Printf("Full compliance test saved to %s\n", filePath)
 
-	industryComplianceStartSpinner.Success()
-
-	time.Sleep(500 * time.Millisecond)
 	// var complianceEndSpinner = ux.NewSpinner("Compliance processing", "Compliance finished", "Authentication failed", false)
 	// complianceEndSpinner.Start()
 
@@ -266,11 +360,94 @@ func complianceStep() {
 	return
 }
 
-func planStep(body bytes.Buffer, writer *multipart.Writer) (success bool, bodyBytes []byte) {
+func validateStep(path string) (success bool) {
+
+	var validateStartSpinner = ux.NewSpinner("Validation starting", "Validation complete", "Validation failed", false)
+	validateStartSpinner.Start()
+	body := []byte(`{"provider":"` + provider + `"}`)
+
+	validateReq, err := http.NewRequest("GET", url+"/api/cli/tfvalidate/"+path, bytes.NewBuffer(body))
+	if err != nil {
+		validateStartSpinner.Fail()
+		return false
+	}
+
+	//Auth ----------------------------------------------
+	validateReq.Header.Set("Content-Type", "application/json")
+	validateReq.Header.Set("Authorization", token)
+
+	// Execute the request.
+	client := &http.Client{}
+	resp, err := client.Do(validateReq)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		validateStartSpinner.Fail()
+
+		return false
+
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		validateStartSpinner.Fail()
+
+		fmt.Println("validate service unavailable")
+		return false
+
+	}
+	validateStartSpinner.Success()
+	time.Sleep(500 * time.Millisecond)
+
+	fmt.Println(string(bodyBytes))
+	return true
+
+}
+
+func formatStep(path string) (success bool) {
+
+	var formatStartSpinner = ux.NewSpinner("Formatting starting", "Formatting complete", "Formatting failed", false)
+	formatStartSpinner.Start()
+
+	formatReq, err := http.NewRequest("GET", url+"/api/cli/tfformat/"+path, nil)
+	if err != nil {
+		formatStartSpinner.Fail()
+		return false
+	}
+
+	//Auth ----------------------------------------------
+	formatReq.Header.Set("Content-Type", "application/json")
+	formatReq.Header.Set("Authorization", token)
+	time.Sleep(1000 * time.Millisecond)
+
+	// Execute the request.
+	client := &http.Client{}
+	resp, err := client.Do(formatReq)
+	if err != nil {
+		formatStartSpinner.Fail()
+
+		return false
+
+	}
+	//bodyBytes, err := io.ReadAll(resp.Body)
+
+	//defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		formatStartSpinner.Fail()
+
+		fmt.Println("Format service unavailable")
+		return false
+
+	}
+	formatStartSpinner.Success()
+	time.Sleep(500 * time.Millisecond)
+
+	return true
+
+}
+
+func planStep(path string) (success bool, bodyBytes []byte) {
 
 	success = false
-	boundary := writer.Boundary()
-
+	body := []byte(`{"name":"test","description":"test","provider":"` + provider + `"}`)
 	var planStartSpinner = ux.NewSpinner("Plan starting", "Plan started", "Plan failed to start", false)
 	planStartSpinner.Start()
 	time.Sleep(1000 * time.Millisecond)
@@ -279,15 +456,16 @@ func planStep(body bytes.Buffer, writer *multipart.Writer) (success bool, bodyBy
 	var planProgressSpinner = ux.NewSpinner("Plan in progress", "Plan finished", "Plan failed", true)
 	planProgressSpinner.Start()
 
+	submitReq, err := http.NewRequest("POST", url+"/api/cli/tfplan/"+path, bytes.NewBuffer(body))
+
 	// Create a new HTTP request with the multipart data.
-	submitReq, err := http.NewRequest("POST", url+"/api/cli/submit/"+name, &body)
 	if err != nil {
 		return
 	}
 
 	// Set the Content-Type header with the boundary.
-	submitReq.Header.Set("Content-Type", fmt.Sprintf("multipart/form-data; boundary=%s", boundary))
 
+	submitReq.Header.Set("Content-Type", "application/json")
 	// Set the Authorization header with the provided token.
 	submitReq.Header.Set("Authorization", token)
 
@@ -314,12 +492,36 @@ func planStep(body bytes.Buffer, writer *multipart.Writer) (success bool, bodyBy
 		return
 
 	}
-	var planProcessingSpinner = ux.NewSpinner("Plan processing", "Plan processed", "Plan failed", false)
-	planProcessingSpinner.Start()
-	time.Sleep(1000 * time.Millisecond)
-	planProcessingSpinner.Success()
+	// var planProcessingSpinner = ux.NewSpinner("Plan processing", "Plan processed", "Plan failed", false)
+	// planProcessingSpinner.Start()
+	// time.Sleep(1000 * time.Millisecond)
+	// planProcessingSpinner.Success()
 
 	return
+}
+
+func deleteFilesStep(path string) (success bool) {
+	authReq, err := http.NewRequest("GET", url+"/api/cli/deletefiles/"+path, nil)
+	if err != nil {
+		return false
+	}
+
+	//Auth ----------------------------------------------
+	authReq.Header.Set("Authorization", token)
+
+	// Execute the request.
+	client := &http.Client{}
+	resp, err := client.Do(authReq)
+
+	if err != nil {
+		return false
+
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false
+
+	}
+	return true
 }
 
 func costStep(projectId string) (success bool) {
@@ -384,7 +586,9 @@ func costStep(projectId string) (success bool) {
 
 func imageStep(projectId string, path string) {
 
-	var imageStartSpinner = ux.NewSpinner("Generating canvas image", "Image saved to: "+path+"/canvas_image.png", "Generating canvas image failed", false)
+	filePath := filepath.Join(path, "maze-output", "maze_canvas_image.png")
+
+	var imageStartSpinner = ux.NewSpinner("Generating canvas image", "Image saved to: "+filePath, "Generating canvas image failed", false)
 	imageStartSpinner.Start()
 
 	authReq, err := http.NewRequest("GET", url+"/api/cli/canvasimage/"+projectId, nil)
@@ -413,8 +617,6 @@ func imageStep(projectId string, path string) {
 		return
 	}
 
-	// Define the file path and name
-	filePath := path + "/canvas_image.png"
 	err = os.WriteFile(filePath, imgBytes, 0644)
 	if err != nil {
 		fmt.Println(err)
@@ -436,6 +638,7 @@ func init() {
 	planCmd.Flags().StringVarP(&profileName, "profile", "p", "default", "The profile to get the auth token from")
 	planCmd.Flags().StringVarP(&url, "url", "u", "https://maze-multicloud.com", "The url for the maze instance you are using")
 	planCmd.Flags().StringVarP(&name, "name", "n", "default", "The name for the generated project")
+	planCmd.Flags().StringVarP(&provider, "provider", "", "provider", "The name of the provider, e.g. AWS or AZURE")
 	planCmd.Flags().BoolVarP(&generateImage, "image", "i", false, "Generate an image of the canvas and save to terraform files folder after plan is complete")
 
 	planCmd.SetOutput(color.Output)
