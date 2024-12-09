@@ -6,6 +6,8 @@ go:
 
 script:
   - go test -v ./...
+  - curl -sfL https://goreleaser.com/static/run | bash -s -- check # check goreleaser config for deprecations
+
 
 jobs:
   include:
@@ -18,7 +20,7 @@ deploy:
 - provider: script
   github_token: $GITHUB_TOKEN
   skip_cleanup: true
-  script: curl -sfL https://goreleaser.com/static/run | bash
+  script: curl -sL https://git.io/goreleaser | bash
   on:
     tags: true
     condition: $TRAVIS_OS_NAME = linux
