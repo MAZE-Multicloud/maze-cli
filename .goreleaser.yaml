@@ -27,13 +27,6 @@ builds:
     flags:
       - -mod=vendor
 
-github_urls:
-  api: https://github.ibm.com/api/v3/
-  upload: https://github.ibm.com/api/uploads/
-  download: https://github.ibm.com/
-  # set to true if you use a self-signed certificate
-  skip_tls_verify: false
-
 archives:
   - format: tar.gz
     # this name template makes the OS and Arch compatible with the results of `uname`.
@@ -58,7 +51,7 @@ universal_binaries:
 brews:
   - 
     name: maze
-    homepage: https://github.ibm.com/MAZE-MultiCloud/maze-cli
+    homepage: https://github.com/MAZE-MultiCloud/maze-cli
     repository:
       owner: MAZE-MultiCloud
       name: homebrew-maze-cli
