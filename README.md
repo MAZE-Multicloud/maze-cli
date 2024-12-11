@@ -13,8 +13,8 @@
 You can install `maze-cli` via [Homebrew](https://brew.sh/) using the following steps:
 
 ```bash
-brew tap brew tap MAZE-MultiCloud/homebrew-maze-cli https://github.ibm.com/MAZE-MultiCloud/homebrew-maze-cli
-brew install maze-cli
+brew tap MAZE-Multicloud/maze-cli
+brew install maze
 ```
 ## Usage
 
