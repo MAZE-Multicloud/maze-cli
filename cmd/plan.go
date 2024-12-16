@@ -83,23 +83,38 @@ func mazePlan() error {
 	fmt.Println()
 	style.Printf(ux.MazeLogo)
 	style.Println("Terraform plan")
-	fmt.Printf("We are going to create a project in maze using terraform provided from %s and the project will be named %s\n\n\n", dirPath, name)
+	fmt.Printf("We are going to create a project in maze using terraform provided from %s and the project will be named %s\n\nUsing "+url+" as the server (to change use -u)\n\n\n", dirPath, name)
 
 	time.Sleep(2000 * time.Millisecond)
 
+	if provider != "aws" && provider != "azure" && provider != "gcp" {
+		fmt.Println("Enter the provider you are using - aws/azure/gcp (use --provider to pass in provider):")
+		fmt.Scanln(&provider)
+		if provider != "aws" && provider != "azure" && provider != "gcp" {
+			for ok := true; ok; ok = provider != "aws" && provider != "azure" && provider != "gcp" {
+				fmt.Println("Provider needs to be one provided")
+				fmt.Println("Enter the provider you are using - aws/azure/gcp:")
+				fmt.Scanln(&provider)
+			}
+		}
+	}
 	success := authStep()
 
 	if !success {
 		return nil
 	}
 
+	if provider == "gcp" {
+		provider = "google"
+	} else if provider == "azure" {
+		provider = "azurerm"
+	}
 	time.Sleep(500 * time.Millisecond)
 
 	body, writer := readFileStep()
 
 	time.Sleep(1000 * time.Millisecond)
 	success, path := sendFiles(body, writer)
-
 	folderPath := filepath.Join(dirPath, "maze-output")
 	if _, err := os.Stat(folderPath); errors.Is(err, os.ErrNotExist) {
 		err := os.Mkdir(folderPath, os.ModePerm)
@@ -212,7 +227,7 @@ func readFileStep() (body bytes.Buffer, writer *multipart.Writer) {
 		// Skip directories; only process files.
 		if !info.IsDir() {
 			// Open the file.
-			if strings.HasPrefix(filepath.Ext(info.Name()), ".tf") {
+			if strings.HasPrefix(filepath.Ext(info.Name()), ".tf") || strings.HasPrefix(filepath.Ext(info.Name()), ".tfvars") || strings.HasPrefix(filepath.Ext(info.Name()), ".tfstate") {
 
 				fileToUpload, err := os.Open(path)
 				if err != nil {
@@ -352,11 +367,6 @@ func complianceStep(path string) {
 
 	fmt.Printf("Full compliance test saved to %s\n", filePath)
 
-	// var complianceEndSpinner = ux.NewSpinner("Compliance processing", "Compliance finished", "Authentication failed", false)
-	// complianceEndSpinner.Start()
-
-	// time.Sleep(1000 * time.Millisecond)
-	// complianceEndSpinner.Success()
 	return
 }
 
@@ -638,7 +648,7 @@ func init() {
 	planCmd.Flags().StringVarP(&profileName, "profile", "p", "default", "The profile to get the auth token from")
 	planCmd.Flags().StringVarP(&url, "url", "u", "https://maze-multicloud.com", "The url for the maze instance you are using")
 	planCmd.Flags().StringVarP(&name, "name", "n", "default", "The name for the generated project")
-	planCmd.Flags().StringVarP(&provider, "provider", "", "provider", "The name of the provider, e.g. AWS or AZURE")
+	planCmd.Flags().StringVarP(&provider, "provider", "", "", "The name of the provider, e.g. AWS or AZURE")
 	planCmd.Flags().BoolVarP(&generateImage, "image", "i", false, "Generate an image of the canvas and save to terraform files folder after plan is complete")
 
 	planCmd.SetOutput(color.Output)
